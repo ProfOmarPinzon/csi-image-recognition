@@ -16,35 +16,121 @@ Cada frame capturado por la cámara pasa por el pipeline GStreamer de NVIDIA, se
 
 ---
 
-## Requisitos de software
+## Procedimiento de instalación
 
-### Entorno virtual
+### 1. Verificar el daemon de la cámara ISP
 
-Usa el venv compartido en `~/python-camara/venv-jetson/`:
+El hardware CSI requiere que el servicio `nvargus-daemon` esté corriendo antes de cualquier acceso a la cámara:
 
-| Paquete | Versión |
-|---|---|
-| torch | 2.8.0 (índice Jetson) |
-| torchvision | 0.23.0 (índice Jetson) |
-| opencv-python | sistema (`/usr/lib/python3/dist-packages`) |
-| numpy | 1.26.4 (debe ser 1.x) |
-| ultralytics | 8.4.21 |
+```bash
+sudo systemctl start nvargus-daemon
+sudo systemctl status nvargus-daemon   # debe aparecer "active (running)"
+```
 
-> **OpenCV del sistema** — el wheel de pip no incluye GStreamer. El venv apunta al OpenCV del sistema vía el archivo `.pth` en `site-packages`. No reinstalar `opencv-python` desde pip.
+Para que inicie automáticamente con el sistema:
 
-> **PyTorch Jetson** — debe instalarse desde el índice específico:
-> ```bash
-> pip install torch==2.8.0 torchvision==0.23.0 \
->     --index-url https://pypi.jetson-ai-lab.io/jp6/cu126
-> ```
+```bash
+sudo systemctl enable nvargus-daemon
+```
 
-### Modelo YOLOv8s
+### 2. Verificar soporte GStreamer en OpenCV
 
-El peso se descarga automáticamente la primera ejecución y queda en `~/.cache/ultralytics/`. También puede pre-descargarse:
+El OpenCV instalado via `pip` **no incluye soporte GStreamer**. Se necesita el OpenCV del sistema (precompilado con GStreamer en JetPack):
+
+```bash
+python3 -c "import cv2; print(cv2.getBuildInformation())" | grep GStreamer
+# Debe mostrar:  GStreamer:                   YES (...)
+```
+
+Si muestra `NO`, no uses el OpenCV de pip — usa el del sistema.
+
+### 3. Crear o reutilizar el entorno virtual
+
+Se usa el venv compartido en `~/python-camara/venv-jetson/`. Si no existe:
+
+```bash
+python3 -m venv ~/python-camara/venv-jetson --system-site-packages
+```
+
+> El flag `--system-site-packages` es **crítico**: permite que el venv vea el OpenCV del sistema (con GStreamer) sin necesidad de reinstalarlo.
+
+Activar el entorno:
+
 ```bash
 source ~/python-camara/venv-jetson/bin/activate
+```
+
+### 4. Instalar PyTorch desde el índice Jetson
+
+Los builds estándar de PyPI no tienen soporte CUDA en aarch64. Se debe usar el índice específico de Jetson AI Lab:
+
+```bash
+pip install torch==2.8.0 torchvision==0.23.0 \
+    --index-url https://pypi.jetson-ai-lab.io/jp6/cu126
+```
+
+Verificar que CUDA esté disponible:
+
+```bash
+python3 -c "import torch; print(torch.cuda.is_available())"
+# Debe imprimir: True
+```
+
+### 5. Fijar NumPy en 1.x
+
+El OpenCV del sistema (4.8.x) fue compilado contra NumPy 1.x. Instalar NumPy 2.x rompe el ABI en tiempo de ejecución:
+
+```bash
+pip install "numpy>=1.24,<2.0"
+# o bien la versión exacta probada:
+pip install numpy==1.26.4
+```
+
+Verificar:
+
+```bash
+python3 -c "import numpy; print(numpy.__version__)"
+# Debe mostrar 1.26.x
+```
+
+### 6. Instalar Ultralytics (YOLOv8)
+
+```bash
+pip install ultralytics==8.4.21
+```
+
+### 7. Descargar el modelo YOLOv8s
+
+El peso se descarga automáticamente en la primera ejecución. Para pre-descargarlo:
+
+```bash
 python3 -c "from ultralytics import YOLO; YOLO('yolov8s.pt')"
 ```
+
+El archivo queda en `~/.cache/ultralytics/`. El script busca el peso en `~/python-camara/yolov8s.pt`; copiarlo si es necesario:
+
+```bash
+cp ~/.cache/ultralytics/assets/yolov8s.pt ~/python-camara/yolov8s.pt
+```
+
+### 8. Clonar el repositorio
+
+```bash
+git clone <url-del-repo> ~/csi-image-recognition
+cd ~/csi-image-recognition
+```
+
+---
+
+## Resumen de paquetes instalados
+
+| Paquete | Versión | Fuente |
+|---|---|---|
+| torch | 2.8.0 | índice Jetson (`pypi.jetson-ai-lab.io`) |
+| torchvision | 0.23.0 | índice Jetson |
+| opencv-python | 4.8.1.78 | sistema (via `--system-site-packages`) |
+| numpy | 1.26.4 | PyPI (restringido a 1.x) |
+| ultralytics | 8.4.21 | PyPI |
 
 ---
 
@@ -61,7 +147,7 @@ sudo jetson_clocks
 
 ---
 
-## Ejecución local (monitor conectado al Jetson)
+## Ejecución
 
 ```bash
 source ~/python-camara/venv-jetson/bin/activate
@@ -77,6 +163,12 @@ python3 csi_classifier.py --infer-every 2
 
 # Cámara montada al revés (giro 180°)
 python3 csi_classifier.py --flip 2
+```
+
+Con el script de conveniencia:
+
+```bash
+bash run_app.sh
 ```
 
 ### Argumentos disponibles
@@ -152,6 +244,8 @@ nvarguscamerasrc (sensor ISP, NVMM, AE/AWB)
     → appsink  → OpenCV
 ```
 
+`flip-method`: 0=ninguno, 1=ccw90°, 2=180°, 3=cw90°, 4=horizontal, 6=vertical.
+
 ---
 
 ## Modos del sensor IMX219
@@ -168,38 +262,16 @@ nvarguscamerasrc (sensor ISP, NVMM, AE/AWB)
 
 ## Monitoreo de GPU
 
-| Herramienta | Muestra GPU | Instalación | Comando |
-|---|---|---|---|
-| `tegrastats` | Sí (Jetson nativa) | preinstalada | `sudo tegrastats` |
-| `jtop` | Sí (CPU, GPU, memoria, potencia) | `pip install jetson-stats` | `sudo jtop` |
-| `btop` | No* | `sudo apt install btop` | `btop` |
+| Herramienta | Muestra GPU | Comando |
+|---|---|---|
+| `tegrastats` | Sí (nativa Jetson) | `sudo tegrastats` |
+| `jtop` | Sí (CPU, GPU, potencia, temperatura) | `sudo jtop` |
+| `btop` | No (sin soporte NVIDIA) | `btop` |
 
-> \* **btop** no tiene soporte para GPUs NVIDIA por limitación propia del software; solo muestra CPU, RAM y disco.
-
-### tegrastats
-
-Salida en texto plano con métricas de CPU, GPU, memoria y temperatura:
+Instalar `jtop` (solo la primera vez):
 
 ```bash
-sudo tegrastats
-```
-
-### jtop
-
-Monitor interactivo con TUI, diseñado específicamente para Jetson. Muestra uso de CPU por núcleo, GPU, NVDLA, encoder/decoder de video, consumo de potencia y temperatura:
-
-```bash
-sudo pip install jetson-stats   # instalación única
-sudo jtop
-```
-
-### btop
-
-Monitor de recursos general (CPU, RAM, procesos). Útil para ver carga del sistema, pero **no muestra la GPU** ya que btop no integra soporte para GPUs NVIDIA por limitaciones propias del proyecto:
-
-```bash
-sudo apt install btop   # instalación única
-btop
+sudo pip install jetson-stats
 ```
 
 ---
@@ -209,7 +281,17 @@ btop
 | Síntoma | Causa | Solución |
 |---|---|---|
 | `Could not open CSI camera` | `nvargus-daemon` detenido | `sudo systemctl start nvargus-daemon` |
-| `GStreamer: NO` en OpenCV | pip wheel sin GStreamer | Usar el OpenCV del sistema (ver sección de requisitos) |
+| `GStreamer: NO` en OpenCV | pip wheel sin GStreamer | Usar el OpenCV del sistema (venv con `--system-site-packages`) |
 | `torch.cuda.is_available()` = False | PyTorch de PyPI estándar | Reinstalar desde `pypi.jetson-ai-lab.io` |
-| NumPy ABI error | NumPy 2.x instalado | `pip install numpy==1.26.4` |
+| NumPy ABI error al importar OpenCV | NumPy 2.x instalado | `pip install numpy==1.26.4` |
 | Ventana no aparece en remoto | X11 forwarding inactivo | Usar MobaXterm o `ssh -X` con VcXsrv |
+| `CANCELLED` en logs de argus | Mensaje normal de salida ISP | No es un error — ignorar |
+
+---
+
+## Proyectos de referencia
+
+| Proyecto | Ruta | Qué aporta |
+|---|---|---|
+| csi-test | `~/csi-test/` | Pipeline CSI, modos de sensor, patrones GStreamer |
+| python-camara | `~/python-camara/` | YOLOv8 en GPU, detección de contornos, configuración del venv |
