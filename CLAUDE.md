@@ -105,4 +105,3 @@ Model weights `yolov8s.pt` are stored inside the project root.
 | Project | Path | What it demonstrates |
 |---|---|---|
 | csi-test | `~/csi-test/` | CSI camera pipeline, sensor modes, GStreamer patterns |
-| python-camara | `~/python-camara/` | YOLOv8 on GPU, contour detection, venv setup |
