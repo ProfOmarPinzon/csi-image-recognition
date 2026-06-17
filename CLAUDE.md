@@ -17,7 +17,7 @@ sudo jetson_clocks                    # unlock max clocks (optional)
 ## Running
 
 ```bash
-source ~/python-camara/venv-jetson/bin/activate
+source .venv/bin/activate
 
 # Default (720p60, top-3 predictions)
 python3 csi_classifier.py
@@ -39,7 +39,7 @@ sudo tegrastats
 
 ## Virtual Environment
 
-Use **`~/python-camara/venv-jetson/`** (shared across Jetson vision projects):
+Use **`.venv/`** inside the project root (`csi-image-recognition/.venv/`):
 
 | Package | Version | Note |
 |---|---|---|
@@ -87,11 +87,11 @@ nvarguscamerasrc (sensor ISP, NVMM memory, AE/AWB)
 
 ```python
 from ultralytics import YOLO
-model = YOLO("yolov8n.pt")           # nano model — fastest on Jetson
+model = YOLO("yolov8s.pt")           # small model — good balance on Jetson
 results = model(frame, device=0)     # device=0 → CUDA GPU
 ```
 
-Model weights `yolov8n.pt` are pre-downloaded at `~/python-camara/yolov8n.pt`.
+Model weights `yolov8s.pt` are stored inside the project root.
 
 ## Common Failure Modes
 

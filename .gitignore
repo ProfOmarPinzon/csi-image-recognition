@@ -1,0 +1,6 @@
+.venv/
+*.pt
+capturas/
+__pycache__/
+*.pyc
+snapshot_*.jpg

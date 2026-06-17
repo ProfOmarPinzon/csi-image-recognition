@@ -17,6 +17,7 @@ Controls:
 
 import argparse
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -32,7 +33,7 @@ SENSOR_MODES = {
 
 DISPLAY_WIDTH  = 1280
 DISPLAY_HEIGHT = 720
-MODEL_PATH     = "/home/opinzon/python-camara/yolov8s.pt"
+MODEL_PATH     = Path(__file__).parent / "yolov8s.pt"
 
 
 # ---------------------------------------------------------------------------
