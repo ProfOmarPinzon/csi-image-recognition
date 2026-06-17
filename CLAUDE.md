@@ -30,7 +30,14 @@ python3 csi_classifier.py --infer-every 2
 
 # 180-degree flip (common for upside-down mount)
 python3 csi_classifier.py --flip 2
+
+# Unattended experiment over SSH: no display, fixed duration, CSV metrics log
+python3 csi_classifier.py --headless --duration 3600 --log-file logs/run.csv
 ```
+
+`--log-file` writes one CSV row per inferred frame (`timestamp_iso, epoch_s, frame_n, latency_ms, fps_instant, n_detections`), flushed immediately after each write. The on-screen HUD also shows live latency (`Inferencia: NN.N ms`) next to FPS and detection count, independent of `--log-file`.
+
+To get this CSV into the Jetson's observability stack (Telegraf/InfluxDB/Grafana, see `~/observability/README.md`), point `--log-file` at a path inside `~/observability/logs/` — the `jetson-infer-metrics` systemd service watches that directory and pushes new rows straight to InfluxDB's HTTP API. (Telegraf's `inputs.tail` was tried first and abandoned: it never picked up live appends in the Telegraf 1.21.4 packaged for this Jetson.)
 
 Monitor GPU load:
 ```bash

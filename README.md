@@ -1,4 +1,4 @@
-# CSI Image Recognition — FISE-UPB-BGA 2026
+# CSI Image Recognition — Marco de Observabilidad Inteligente para Plataformas Edge AI
 
 Detección de objetos en tiempo real con cámara CSI IMX219 y YOLOv8 sobre **NVIDIA Jetson Orin Nano** (JetPack 6.2, Ubuntu 22.04, aarch64).
 
@@ -163,6 +163,9 @@ python3 csi_classifier.py --infer-every 2
 
 # Cámara montada al revés (giro 180°)
 python3 csi_classifier.py --flip 2
+
+# Sesión desatendida (sin ventana) de 60 min con log CSV de latencia/FPS
+python3 csi_classifier.py --headless --duration 3600 --log-file logs/run.csv
 ```
 
 Con el script de conveniencia:
@@ -180,6 +183,11 @@ bash run_app.sh
 | `--flip` | `0` | flip-method: 0=ninguno, 2=180°, 4=horizontal, 6=vertical |
 | `--conf` | `0.35` | Umbral mínimo de confianza (0.0–1.0) |
 | `--infer-every` | `1` | Ejecutar YOLO cada N frames |
+| `--headless` | `False` | Correr sin ventana (para sesiones SSH/desatendidas) |
+| `--duration` | sin límite | Detener automáticamente tras N segundos |
+| `--log-file` | ninguno | Ruta CSV con timestamp/latencia/fps/detecciones por frame inferido |
+
+El HUD en pantalla muestra `FPS xx.x | Inferencia: xx.x ms | Objetos: N` — la latencia se ve siempre, con o sin `--log-file`.
 
 ### Controles en ventana
 

@@ -10,13 +10,18 @@ Usage:
     python3 csi_classifier.py --mode 1080p --conf 0.4
     python3 csi_classifier.py --flip 2 --infer-every 2
 
-Controls:
+    # Unattended experiment run (no display, fixed duration, CSV log)
+    python3 csi_classifier.py --headless --duration 3600 --log-file logs/run.csv
+
+Controls (non-headless):
     q / ESC  — quit
     s        — save snapshot to snapshot_<timestamp>.jpg
 """
 
 import argparse
+import csv
 import time
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -128,7 +133,7 @@ def draw_detections(frame, results, conf_threshold: float) -> int:
     return len(kept)
 
 
-def draw_hud(frame, fps: float, n_detections: int):
+def draw_hud(frame, fps: float, n_detections: int, latency_ms: float = None):
     """Top header bar + bottom info strip for exhibition display."""
     h, w = frame.shape[:2]
 
@@ -141,11 +146,12 @@ def draw_hud(frame, fps: float, n_detections: int):
     cv2.line(frame, (0, 46), (w, 46), (0, 200, 255), 1)
     cv2.line(frame, (0, h - 34), (w, h - 34), (0, 200, 255), 1)
 
-    cv2.putText(frame, "SISTEMA DE VISION INTELIGENTE - FISE UPBBGA 2026",
+    cv2.putText(frame, "MARCO DE OBSERVABILIDAD INTELIGENTE PARA EDGE AI",
                 (14, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.72,
                 (0, 220, 255), 2, cv2.LINE_AA)
 
-    stats = f"FPS {fps:4.1f}   |   Objetos: {n_detections}"
+    latency_str = f"{latency_ms:5.1f} ms" if latency_ms is not None else " -- ms"
+    stats = f"FPS {fps:4.1f}   |   Inferencia: {latency_str}   |   Objetos: {n_detections}"
     (tw, _), _ = cv2.getTextSize(stats, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
     cv2.putText(frame, stats, (w - tw - 14, 32),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, (160, 230, 160), 1, cv2.LINE_AA)
@@ -172,6 +178,12 @@ def main():
                         help="Minimum detection confidence (default: 0.35)")
     parser.add_argument("--infer-every", type=int,   default=1,
                         help="Run YOLO every N frames — increase if GPU is bottleneck")
+    parser.add_argument("--headless",    action="store_true",
+                        help="Run without a display window (for unattended/SSH sessions)")
+    parser.add_argument("--duration",    type=float, default=None,
+                        help="Stop automatically after N seconds (for timed experiments)")
+    parser.add_argument("--log-file",    type=str,   default=None,
+                        help="CSV path to log per-inference timestamp/latency/fps/detections")
     args = parser.parse_args()
 
     cap_w, cap_h, cap_fps = SENSOR_MODES[args.mode]
@@ -201,48 +213,97 @@ def main():
 
     print(f"Running — {disp_w}x{disp_h} display | capture {cap_w}x{cap_h}@{cap_fps}fps")
     print(f"Confidence: {args.conf} | infer every {args.infer_every} frame(s)")
-    print("Press  q / ESC  to quit   |   s  to save snapshot\n")
+    if args.headless:
+        duration_msg = f"{args.duration}s" if args.duration else "until Ctrl+C"
+        print(f"Headless mode | duration: {duration_msg}")
+    else:
+        print("Press  q / ESC  to quit   |   s  to save snapshot")
 
-    results     = None
-    n_det       = 0
-    frame_n     = 0
-    fps_counter = 0
-    fps_start   = time.time()
-    fps_display = 0.0
+    log_file   = None
+    log_writer = None
+    if args.log_file:
+        log_path = Path(args.log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_file   = open(log_path, "w", newline="")
+        log_writer = csv.writer(log_file)
+        log_writer.writerow(
+            ["timestamp_iso", "epoch_s", "frame_n", "latency_ms", "fps_instant", "n_detections"]
+        )
+        log_file.flush()
+        print(f"Logging inference metrics to {log_path}")
+    print()
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("ERROR: Frame grab failed — camera disconnected?")
-            break
+    results         = None
+    n_det           = 0
+    frame_n         = 0
+    fps_counter     = 0
+    fps_start       = time.time()
+    fps_display     = 0.0
+    latency_display = None
+    session_start   = time.time()
 
-        frame_n     += 1
-        fps_counter += 1
-        elapsed = time.time() - fps_start
-        if elapsed >= 1.0:
-            fps_display = fps_counter / elapsed
-            fps_counter = 0
-            fps_start   = time.time()
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("ERROR: Frame grab failed — camera disconnected?")
+                break
 
-        if frame_n % args.infer_every == 0:
-            results = model(frame, device=0, verbose=False)
+            frame_n     += 1
+            fps_counter += 1
+            elapsed = time.time() - fps_start
+            if elapsed >= 1.0:
+                fps_display = fps_counter / elapsed
+                fps_counter = 0
+                fps_start   = time.time()
 
-        n_det = draw_detections(frame, results, args.conf)
-        draw_hud(frame, fps_display, n_det)
+            latency_ms = None
+            if frame_n % args.infer_every == 0:
+                t0              = time.perf_counter()
+                results         = model(frame, device=0, verbose=False)
+                latency_ms      = (time.perf_counter() - t0) * 1000
+                latency_display = latency_ms
 
-        cv2.imshow("Vision Inteligente — Jetson Orin Nano", frame)
+            n_det = draw_detections(frame, results, args.conf)
 
-        key = cv2.waitKey(1) & 0xFF
-        if key in (ord("q"), 27):
-            break
-        elif key == ord("s"):
-            ts    = time.strftime("%Y%m%d_%H%M%S")
-            fname = f"snapshot_{ts}.jpg"
-            cv2.imwrite(fname, frame)
-            print(f"Snapshot: {fname}")
+            if latency_ms is not None and log_writer is not None:
+                now = time.time()
+                log_writer.writerow([
+                    datetime.fromtimestamp(now).isoformat(timespec="microseconds"),
+                    f"{now:.3f}",
+                    frame_n,
+                    f"{latency_ms:.3f}",
+                    f"{fps_display:.2f}",
+                    n_det,
+                ])
+                log_file.flush()
 
-    cap.release()
-    cv2.destroyAllWindows()
+            if args.duration and (time.time() - session_start) >= args.duration:
+                print(f"\nDuration limit reached ({args.duration}s) — stopping.")
+                break
+
+            if args.headless:
+                continue
+
+            draw_hud(frame, fps_display, n_det, latency_display)
+            cv2.imshow("Marco de Observabilidad Inteligente — Jetson Orin Nano", frame)
+
+            key = cv2.waitKey(1) & 0xFF
+            if key in (ord("q"), 27):
+                break
+            elif key == ord("s"):
+                ts    = time.strftime("%Y%m%d_%H%M%S")
+                fname = f"snapshot_{ts}.jpg"
+                cv2.imwrite(fname, frame)
+                print(f"Snapshot: {fname}")
+    except KeyboardInterrupt:
+        print("\nInterrupted by user — stopping.")
+    finally:
+        if log_file is not None:
+            log_file.close()
+        cap.release()
+        cv2.destroyAllWindows()
+
     print("Done.")
     return 0
 
