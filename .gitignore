@@ -1,6 +1,9 @@
 .venv/
 *.pt
+*.engine
 capturas/
 __pycache__/
 *.pyc
 snapshot_*.jpg
+logs/
+*.csv

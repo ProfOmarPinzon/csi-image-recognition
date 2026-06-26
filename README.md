@@ -2,7 +2,14 @@
 
 Detección de objetos en tiempo real con cámara CSI IMX219 y YOLOv8 sobre **NVIDIA Jetson Orin Nano** (JetPack 6.2, Ubuntu 22.04, aarch64).
 
-Cada frame capturado por la cámara pasa por el pipeline GStreamer de NVIDIA, se infiere con YOLOv8s en la GPU y se visualiza con bounding boxes, etiquetas de clase, porcentaje de confianza y HUD de exhibición.
+Cada frame capturado por la cámara pasa por el pipeline GStreamer de NVIDIA, se infiere con YOLOv8s en la GPU (PyTorch `.pt` o TensorRT FP16 `.engine`) y se visualiza con bounding boxes, etiquetas de clase, porcentaje de confianza y HUD de exhibición.
+
+Este módulo es el componente de inferencia del marco de observabilidad inteligente descrito en:
+
+> **"Marco de Observabilidad Inteligente para Plataformas Edge AI basadas en NVIDIA Jetson Orin Nano"**
+> *Submitted to IEEE — 2026*
+>
+> Datos experimentales y scripts de análisis: https://github.com/ProfOmarPinzon/jetson-edge-ai-observability
 
 ---
 
@@ -186,6 +193,7 @@ bash run_app.sh
 | `--headless` | `False` | Correr sin ventana (para sesiones SSH/desatendidas) |
 | `--duration` | sin límite | Detener automáticamente tras N segundos |
 | `--log-file` | ninguno | Ruta CSV con timestamp/latencia/fps/detecciones por frame inferido |
+| `--model` | `yolov8s.pt` | Ruta al modelo: `.pt` (PyTorch) o `.engine` (TensorRT FP16) |
 
 El HUD en pantalla muestra `FPS xx.x | Inferencia: xx.x ms | Objetos: N` — la latencia se ve siempre, con o sin `--log-file`.
 
@@ -265,6 +273,36 @@ nvarguscamerasrc (sensor ISP, NVMM, AE/AWB)
 | `1080p` | 1920×1080 | 30 |
 | `1232p` | 1640×1232 | 30 |
 | `720p60` | 1280×720 | 60 |
+
+---
+
+## Exportación a TensorRT FP16
+
+Para máximo rendimiento en Jetson, exportar el modelo a TensorRT antes de ejecutar:
+
+```bash
+source .venv/bin/activate
+python3 -c "
+from ultralytics import YOLO
+YOLO('yolov8s.pt').export(format='engine', half=True, imgsz=640, device=0)
+"
+# Genera yolov8s.engine (~25 MB, tiempo de build ≈8 min primera vez)
+```
+
+Usar el engine en inferencia:
+
+```bash
+python3 csi_classifier.py --model yolov8s.engine --headless --duration 3600 --log-file logs/run.csv
+```
+
+Resultados medidos (Jetson Orin Nano 15W, `jetson_clocks`):
+
+| Modelo | Latencia media | FPS |
+|--------|---------------|-----|
+| YOLOv8s `.pt` (FP32) | ~90 ms | ~11 |
+| YOLOv8s `.engine` (FP16) | **43.9 ms** | **22.8** |
+
+> El archivo `.engine` es específico para cada combinación de GPU + TensorRT + imagen de entrada. No es portable entre versiones de JetPack.
 
 ---
 

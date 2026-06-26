@@ -184,6 +184,8 @@ def main():
                         help="Stop automatically after N seconds (for timed experiments)")
     parser.add_argument("--log-file",    type=str,   default=None,
                         help="CSV path to log per-inference timestamp/latency/fps/detections")
+    parser.add_argument("--model",       type=str,   default=str(MODEL_PATH),
+                        help="Path to model weights/engine (default: yolov8s.pt)")
     args = parser.parse_args()
 
     cap_w, cap_h, cap_fps = SENSOR_MODES[args.mode]
@@ -199,10 +201,11 @@ def main():
     )
     print(f"Pipeline:\n  {pipeline}\n")
 
-    print("Loading YOLOv8s …")
-    model = YOLO(MODEL_PATH)
-    model.to("cuda")
-    print("YOLOv8s loaded on CUDA\n")
+    print(f"Loading model: {args.model} …")
+    model = YOLO(args.model)
+    if not args.model.endswith(".engine"):
+        model.to("cuda")
+    print("Model loaded on CUDA\n")
 
     cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
     if not cap.isOpened():
